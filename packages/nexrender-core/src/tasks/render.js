@@ -8,6 +8,7 @@ const durationRegex = /Duration:\s+([\d]{1,2}:[\d]{2}:[\d]{2}:[\d]{2})/gi;
 const startRegex = /Start:\s+([\d]{1,2}:[\d]{2}:[\d]{2}:[\d]{2})/gi;
 const nexrenderErrorRegex = /Error:\s+(nexrender:.*)$/gim;
 const errorRegex =          /aerender Error:\s*(.*)$/gis;
+const doneRegex =          /Total Time Elapsed(.*)$/gis;
 
 const option = (params, name, ...values) => {
     if (values !== undefined) {
@@ -85,6 +86,7 @@ module.exports = (job, settings) => {
 
     // tracks error
     let errorSent = false;
+    let doneHandled = false;
 
     const parse = (data) => {
         const string = ('' + data).replace(/;/g, ':'); /* sanitize string */
@@ -95,6 +97,9 @@ module.exports = (job, settings) => {
         const matchDuration = isNaN(parseInt(projectDuration)) ? durationRegex.exec(string) : false;
         // Only execute progressRegex if project duration has been found
         const matchProgress = !isNaN(parseInt(projectDuration)) ? progressRegex.exec(string) : null;
+
+        const isDone = doneRegex.exec(string);
+
         // If durationRegex has a match convert tstamp to seconds and define projectDuration only once
         projectDuration = (matchDuration) ? seconds(matchDuration[1]) : projectDuration;
         // If startRegex has a match convert tstamp to seconds and define projectStart only once
@@ -114,6 +119,10 @@ module.exports = (job, settings) => {
             }
         }
 
+        if (isDone) {
+            settings.logger.log(`[${job.uid}] is done after: ${isDone[1]}`);
+        }
+
         // look for error from nexrender.jsx
         // or maybe it has more global aerender error
         const matchNexrenderError = nexrenderErrorRegex.exec(string);
@@ -129,7 +138,7 @@ module.exports = (job, settings) => {
             errorSent = true
         }
 
-        return data;
+        return {data, isDone};
     }
 
     // spawn process and begin rendering
@@ -149,11 +158,74 @@ module.exports = (job, settings) => {
             // env: { PATH: path.dirname(settings.binary) },
         });
 
+        const handleDone = (code) => {
+            if(doneHandled) return;
+            doneHandled = true;
+
+            const outputStr = output
+            .map(a => '' + a).join('');
+
+        if (code !== 0 && settings.stopOnError) {
+            if (fs.existsSync(logPath)) {
+                settings.logger.log(`[${job.uid}] dumping aerender log:`)
+                settings.logger.log(fs.readFileSync(logPath, 'utf8'))
+            }
+
+            return reject(new Error(outputStr || 'aerender.exe failed to render the output into the file due to an unknown reason'));
+        }
+
+        settings.logger.log(`[${job.uid}] rendering took ~${(Date.now() - renderStopwatch) / 1000} sec.`);
+        settings.logger.log(`[${job.uid}] writing aerender job log to: ${logPath}`);
+
+        fs.writeFileSync(logPath, outputStr);
+
+        /* resolve job without checking if file exists, or its size for image sequences */
+        if (settings.skipRender || job.template.imageSequence || ['jpeg', 'jpg', 'png'].indexOf(outputFile) !== -1) {
+            return resolve(job)
+        }
+
+        // When a render has finished, look for a .mov file too, on AE 2022
+        // the outputfile appears to be forced as .mov.
+        // We need to maintain this here while we have 2022 and 2020
+        // workers simultaneously
+        const movOutputFile = outputFile.replace(/\.avi$/g, '.mov')
+        const existsMovOutputFile = fs.existsSync(movOutputFile)
+        if (existsMovOutputFile) {
+          job.output = movOutputFile
+        }
+
+        if (!fs.existsSync(job.output)) {
+            if (fs.existsSync(logPath)) {
+                settings.logger.log(`[${job.uid}] dumping aerender log:`)
+                settings.logger.log(fs.readFileSync(logPath, 'utf8'))
+            }
+
+            return reject(new Error(`Couldn't find a result file: ${outputFile}`))
+        }
+
+        const stats = fs.statSync(job.output)
+
+        /* file smaller than 1000 bytes */
+        if (stats.size < 1000) {
+            settings.logger.log(`[${job.uid}] Warning: output file size is less than 1000 bytes (${stats.size} bytes), be advised that file is corrupted, or rendering is still being finished`)
+        }
+
+        resolve(job)
+        }
+
         instance.on('error', err => reject(new Error(`Error starting aerender process: ${err}`)));
 
         instance.stdout.on('data', (data) => {
-            output.push(parse(data.toString('utf8')));
+
+            const {data: parsedData, isDone} = parse(data.toString('utf8'))
+            output.push(parsedData);
             (settings.verbose && settings.logger.log(data.toString('utf8')));
+
+            if(isDone) {
+                settings.logger.log(`[${job.uid}] aerender process is actually done`);
+                instance.kill('SIGINT');
+                handleDone(0)
+            }
         });
 
         instance.stderr.on('data', (data) => {
@@ -161,59 +233,10 @@ module.exports = (job, settings) => {
             (settings.verbose && settings.logger.log(data.toString('utf8')));
         });
 
+       
+
         /* on finish (code 0 - success, other - error) */
-        instance.on('close', (code) => {
-
-            const outputStr = output
-                .map(a => '' + a).join('');
-
-            if (code !== 0 && settings.stopOnError) {
-                if (fs.existsSync(logPath)) {
-                    settings.logger.log(`[${job.uid}] dumping aerender log:`)
-                    settings.logger.log(fs.readFileSync(logPath, 'utf8'))
-                }
-
-                return reject(new Error(outputStr || 'aerender.exe failed to render the output into the file due to an unknown reason'));
-            }
-
-            settings.logger.log(`[${job.uid}] rendering took ~${(Date.now() - renderStopwatch) / 1000} sec.`);
-            settings.logger.log(`[${job.uid}] writing aerender job log to: ${logPath}`);
-
-            fs.writeFileSync(logPath, outputStr);
-
-            /* resolve job without checking if file exists, or its size for image sequences */
-            if (settings.skipRender || job.template.imageSequence || ['jpeg', 'jpg', 'png'].indexOf(outputFile) !== -1) {
-                return resolve(job)
-            }
-
-            // When a render has finished, look for a .mov file too, on AE 2022
-            // the outputfile appears to be forced as .mov.
-            // We need to maintain this here while we have 2022 and 2020
-            // workers simultaneously
-            const movOutputFile = outputFile.replace(/\.avi$/g, '.mov')
-            const existsMovOutputFile = fs.existsSync(movOutputFile)
-            if (existsMovOutputFile) {
-              job.output = movOutputFile
-            }
-
-            if (!fs.existsSync(job.output)) {
-                if (fs.existsSync(logPath)) {
-                    settings.logger.log(`[${job.uid}] dumping aerender log:`)
-                    settings.logger.log(fs.readFileSync(logPath, 'utf8'))
-                }
-
-                return reject(new Error(`Couldn't find a result file: ${outputFile}`))
-            }
-
-            const stats = fs.statSync(job.output)
-
-            /* file smaller than 1000 bytes */
-            if (stats.size < 1000) {
-                settings.logger.log(`[${job.uid}] Warning: output file size is less than 1000 bytes (${stats.size} bytes), be advised that file is corrupted, or rendering is still being finished`)
-            }
-
-            resolve(job)
-        });
+        instance.on('close', handleDone);
 
         if (settings.onInstanceSpawn) {
             settings.onInstanceSpawn(instance, job, settings)
