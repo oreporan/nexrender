@@ -16,7 +16,8 @@
     "mkdirp": "^1.0.4",
     "node-fetch": "^2.6.7",
     "requireg": "^0.2.1",
-    "rimraf": "^3.0.2"
+    "rimraf": "^3.0.2",
+    "tree-kill": "^1.2.2"
   },
   "peerDependencies": {
     "@nexrender/action-copy": "^1.0.0",

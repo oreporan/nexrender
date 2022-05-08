@@ -1,6 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const {spawn} = require('child_process')
+const kill = require('tree-kill');
 const {expandEnvironmentVariables, checkForWSL} = require('../helpers/path')
 
 const progressRegex = /([\d]{1,2}:[\d]{2}:[\d]{2}:[\d]{2})\s+(\(\d+\))/gi;
@@ -159,8 +160,14 @@ module.exports = (job, settings) => {
         });
 
         const handleDone = (code) => {
-            if(doneHandled) return;
+            if(doneHandled) {
+                settings.logger.log(`[${job.uid}] done was already handled, skipping`);
+                return;
+            }
+           
             doneHandled = true;
+            kill( instance.pid);
+            settings.logger.log(`[${job.uid}] ae process was forcefully killed: ${wasKilled}`);
 
             const outputStr = output
             .map(a => '' + a).join('');
@@ -210,10 +217,18 @@ module.exports = (job, settings) => {
             settings.logger.log(`[${job.uid}] Warning: output file size is less than 1000 bytes (${stats.size} bytes), be advised that file is corrupted, or rendering is still being finished`)
         }
 
-        resolve(job)
+            resolve(job)
         }
 
         instance.on('error', err => reject(new Error(`Error starting aerender process: ${err}`)));
+
+        instance.on('disconnect', () => {
+            settings.logger.log(`[${job.uid}] aerender process disconnected`);
+        });
+
+        instance.on('exit', () => {
+            settings.logger.log(`[${job.uid}] aerender process exited`);
+        });
 
         instance.stdout.on('data', (data) => {
 
@@ -223,7 +238,6 @@ module.exports = (job, settings) => {
 
             if(isDone) {
                 settings.logger.log(`[${job.uid}] aerender process is actually done`);
-                instance.kill('SIGINT');
                 handleDone(0)
             }
         });
