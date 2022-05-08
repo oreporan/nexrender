@@ -122,6 +122,7 @@ module.exports = (job, settings) => {
 
         if (isDone) {
             settings.logger.log(`[${job.uid}] is done after: ${isDone[1]}`);
+            kill(instance.pid, 0);
         }
 
         // look for error from nexrender.jsx
@@ -139,7 +140,7 @@ module.exports = (job, settings) => {
             errorSent = true
         }
 
-        return {data, isDone};
+        return data;
     }
 
     // spawn process and begin rendering
@@ -159,16 +160,31 @@ module.exports = (job, settings) => {
             // env: { PATH: path.dirname(settings.binary) },
         });
 
-        const handleDone = (code) => {
-            if(doneHandled) {
-                settings.logger.log(`[${job.uid}] done was already handled, skipping`);
-                return;
-            }
-           
-            doneHandled = true;
-            kill( instance.pid);
-            settings.logger.log(`[${job.uid}] ae process was forcefully killed`);
+        instance.on('error', err => reject(new Error(`Error starting aerender process: ${err}`)));
 
+        instance.on('disconnect', () => {
+            settings.logger.log(`[${job.uid}] aerender process disconnected`);
+        });
+
+        instance.on('exit', () => {
+            settings.logger.log(`[${job.uid}] aerender process exited`);
+        });
+
+        instance.stdout.on('data', (data) => {
+            const parsedData = parse(data.toString('utf8'))
+            output.push(parsedData);
+            (settings.verbose && settings.logger.log(data.toString('utf8')));
+        });
+
+        instance.stderr.on('data', (data) => {
+            output.push(data.toString('utf8'));
+            (settings.verbose && settings.logger.log(data.toString('utf8')));
+        });
+
+       
+
+        /* on finish (code 0 - success, other - error) */
+        instance.on('close', (code) => {
             const outputStr = output
             .map(a => '' + a).join('');
 
@@ -218,39 +234,7 @@ module.exports = (job, settings) => {
         }
 
             resolve(job)
-        }
-
-        instance.on('error', err => reject(new Error(`Error starting aerender process: ${err}`)));
-
-        instance.on('disconnect', () => {
-            settings.logger.log(`[${job.uid}] aerender process disconnected`);
         });
-
-        instance.on('exit', () => {
-            settings.logger.log(`[${job.uid}] aerender process exited`);
-        });
-
-        instance.stdout.on('data', (data) => {
-
-            const {data: parsedData, isDone} = parse(data.toString('utf8'))
-            output.push(parsedData);
-            (settings.verbose && settings.logger.log(data.toString('utf8')));
-
-            if(isDone) {
-                settings.logger.log(`[${job.uid}] aerender process is actually done`);
-                handleDone(0)
-            }
-        });
-
-        instance.stderr.on('data', (data) => {
-            output.push(data.toString('utf8'));
-            (settings.verbose && settings.logger.log(data.toString('utf8')));
-        });
-
-       
-
-        /* on finish (code 0 - success, other - error) */
-        instance.on('close', handleDone);
 
         if (settings.onInstanceSpawn) {
             settings.onInstanceSpawn(instance, job, settings)
