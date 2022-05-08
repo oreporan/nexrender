@@ -167,7 +167,7 @@ module.exports = (job, settings) => {
            
             doneHandled = true;
             kill( instance.pid);
-            settings.logger.log(`[${job.uid}] ae process was forcefully killed: ${wasKilled}`);
+            settings.logger.log(`[${job.uid}] ae process was forcefully killed`);
 
             const outputStr = output
             .map(a => '' + a).join('');
