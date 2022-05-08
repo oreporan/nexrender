@@ -87,9 +87,8 @@ module.exports = (job, settings) => {
 
     // tracks error
     let errorSent = false;
-    let doneHandled = false;
 
-    const parse = (data) => {
+    const parse = (data, pid) => {
         const string = ('' + data).replace(/;/g, ':'); /* sanitize string */
 
         // Only execute startRegex if project start hasnt been found
@@ -122,7 +121,7 @@ module.exports = (job, settings) => {
 
         if (isDone) {
             settings.logger.log(`[${job.uid}] is done after: ${isDone[1]}`);
-            kill(instance.pid, 0);
+            kill(pid, 0);
         }
 
         // look for error from nexrender.jsx
@@ -171,7 +170,7 @@ module.exports = (job, settings) => {
         });
 
         instance.stdout.on('data', (data) => {
-            const parsedData = parse(data.toString('utf8'))
+            const parsedData = parse(data.toString('utf8'), instance.pid)
             output.push(parsedData);
             (settings.verbose && settings.logger.log(data.toString('utf8')));
         });
