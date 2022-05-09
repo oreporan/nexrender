@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const {spawn} = require('child_process')
-// const kill = require('tree-kill');
+const kill = require('tree-kill');
 const {expandEnvironmentVariables, checkForWSL} = require('../helpers/path')
 
 const progressRegex = /([\d]{1,2}:[\d]{2}:[\d]{2}:[\d]{2})\s+(\(\d+\))/gi;
@@ -122,7 +122,8 @@ module.exports = (job, settings) => {
 
         if (isDone) {
             settings.logger.log(`[${job.uid}] is done after: ${isDone[1]}`);
-            instance.kill()
+            settings.logger.log(`[${job.uid}] killing process: ${instance.pid}`);
+            kill(instance.pid)
         }
 
         // look for error from nexrender.jsx
