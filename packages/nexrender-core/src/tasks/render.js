@@ -1,7 +1,7 @@
 const fs = require('fs')
 const path = require('path')
 const {spawn} = require('child_process')
-const kill = require('tree-kill');
+// const kill = require('tree-kill');
 const {expandEnvironmentVariables, checkForWSL} = require('../helpers/path')
 
 const progressRegex = /([\d]{1,2}:[\d]{2}:[\d]{2}:[\d]{2})\s+(\(\d+\))/gi;
@@ -88,7 +88,7 @@ module.exports = (job, settings) => {
     // tracks error
     let errorSent = false;
 
-    const parse = (data, pid) => {
+    const parse = (data, instance) => {
         const string = ('' + data).replace(/;/g, ':'); /* sanitize string */
 
         // Only execute startRegex if project start hasnt been found
@@ -121,7 +121,7 @@ module.exports = (job, settings) => {
 
         if (isDone) {
             settings.logger.log(`[${job.uid}] is done after: ${isDone[1]}`);
-            kill(pid, 0);
+            instance.kill()
         }
 
         // look for error from nexrender.jsx
@@ -170,7 +170,7 @@ module.exports = (job, settings) => {
         });
 
         instance.stdout.on('data', (data) => {
-            const parsedData = parse(data.toString('utf8'), instance.pid)
+            const parsedData = parse(data.toString('utf8'), instance)
             output.push(parsedData);
             (settings.verbose && settings.logger.log(data.toString('utf8')));
         });
