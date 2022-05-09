@@ -141,7 +141,7 @@ module.exports = (job, settings) => {
             errorSent = true
         }
 
-        return data;
+        return {data, isDone};
     }
 
     // spawn process and begin rendering
@@ -161,22 +161,6 @@ module.exports = (job, settings) => {
             // env: { PATH: path.dirname(settings.binary) },
         });
 
-        instance.on('error', err => reject(new Error(`Error starting aerender process: ${err}`)));
-
-        instance.on('disconnect', () => {
-            settings.logger.log(`[${job.uid}] aerender process disconnected`);
-        });
-
-        instance.stdout.on('data', (data) => {
-            const parsedData = parse(data.toString('utf8'), instance)
-            output.push(parsedData);
-            (settings.verbose && settings.logger.log(data.toString('utf8')));
-        });
-
-        instance.stderr.on('data', (data) => {
-            output.push(data.toString('utf8'));
-            (settings.verbose && settings.logger.log(data.toString('utf8')));
-        });
 
         const handleDone = (code) => {
             if (doneHandled) {
@@ -234,6 +218,28 @@ module.exports = (job, settings) => {
 
             resolve(job)
         }
+
+        instance.on('error', err => reject(new Error(`Error starting aerender process: ${err}`)));
+
+        instance.on('disconnect', () => {
+            settings.logger.log(`[${job.uid}] aerender process disconnected`);
+        });
+
+        instance.stdout.on('data', (data) => {
+            const {data: parsedData, isDone} = parse(data.toString('utf8'), instance)
+            output.push(parsedData);
+            (settings.verbose && settings.logger.log(data.toString('utf8')));
+
+            if(isDone) {
+                handleDone(0)
+            }
+        });
+
+        instance.stderr.on('data', (data) => {
+            output.push(data.toString('utf8'));
+            (settings.verbose && settings.logger.log(data.toString('utf8')));
+        });
+
 
        
         /* on finish (code 0 - success, other - error) */
