@@ -123,7 +123,7 @@ module.exports = (job, settings) => {
         if (isDone) {
             settings.logger.log(`[${job.uid}] is done after: ${isDone[1]}`);
             settings.logger.log(`[${job.uid}] killing process: ${instance.pid}`);
-            kill(instance.pid)
+            kill(instance.pid, 0)
         }
 
         // look for error from nexrender.jsx
