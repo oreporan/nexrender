@@ -164,7 +164,7 @@ module.exports = (job, settings) => {
 
         const handleDone = (code) => {
             if (doneHandled) {
-                settings.logger.log(`[${job.uid}] done already handled`)
+                settings.logger.log(`[${job.uid}] done already handled, code: ${code}`)
                 return;
             }
             doneHandled = true;
@@ -230,7 +230,7 @@ module.exports = (job, settings) => {
             output.push(parsedData);
             (settings.verbose && settings.logger.log(data.toString('utf8')));
 
-            if(isDone) {
+            if (isDone) {
                 handleDone(0)
             }
         });
@@ -244,8 +244,6 @@ module.exports = (job, settings) => {
        
         /* on finish (code 0 - success, other - error) */
         instance.on('close', handleDone);
-
-        instance.on('exit', handleDone);
 
         if (settings.onInstanceSpawn) {
             settings.onInstanceSpawn(instance, job, settings)
