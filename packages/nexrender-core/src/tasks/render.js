@@ -84,6 +84,7 @@ module.exports = (job, settings) => {
     let previousProgress = undefined;
     let renderStopwatch = null;
     let projectStart = null;
+    let doneHandled = false;
 
     // tracks error
     let errorSent = false;
@@ -165,10 +166,6 @@ module.exports = (job, settings) => {
             settings.logger.log(`[${job.uid}] aerender process disconnected`);
         });
 
-        instance.on('exit', () => {
-            settings.logger.log(`[${job.uid}] aerender process exited`);
-        });
-
         instance.stdout.on('data', (data) => {
             const parsedData = parse(data.toString('utf8'), instance)
             output.push(parsedData);
@@ -180,10 +177,12 @@ module.exports = (job, settings) => {
             (settings.verbose && settings.logger.log(data.toString('utf8')));
         });
 
-       
-
-        /* on finish (code 0 - success, other - error) */
-        instance.on('close', (code) => {
+        const handleDone = (code) => {
+            if (doneHandled) {
+                settings.logger.log(`[${job.uid}] done already handled`)
+                return;
+            }
+            doneHandled = true;
             const outputStr = output
             .map(a => '' + a).join('');
 
@@ -233,7 +232,13 @@ module.exports = (job, settings) => {
         }
 
             resolve(job)
-        });
+        }
+
+       
+        /* on finish (code 0 - success, other - error) */
+        instance.on('close', handleDone);
+
+        instance.on('exit', handleDone);
 
         if (settings.onInstanceSpawn) {
             settings.onInstanceSpawn(instance, job, settings)
